@@ -1,5 +1,7 @@
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
+import { runCliCommand } from '../runners/cli-runner'
+import { runSkillScript } from '../runners/script-runner'
 
 export type TaskType =
   | { type: 'cli'; cmd: string }
@@ -16,8 +18,11 @@ export interface Task {
   data: TaskType
 }
 
-// In-memory task storage (would use SQLite/better-sqlite3 in production)
+// In-memory task storage
 const tasks = new Map<string, Task>()
+
+// Track if we're already processing
+let isProcessing = false
 
 /**
  * Generate a unique task ID
@@ -27,7 +32,7 @@ function generateTaskId(): string {
 }
 
 /**
- * Queue a new task
+ * Queue a new task and start processing
  */
 export function queueTask(data: TaskType): string {
   const id = generateTaskId()
@@ -41,6 +46,10 @@ export function queueTask(data: TaskType): string {
   }
   tasks.set(id, task)
   log.info(`[task-queue] Task queued: ${id}`, data)
+
+  // Start processing if not already
+  processTasks()
+
   return id
 }
 
@@ -100,6 +109,77 @@ export function completeTask(id: string, result: any): void {
     tasks.set(id, task)
     emitTaskComplete(id, result)
     log.info(`[task-queue] Task completed: ${id}`)
+  }
+}
+
+/**
+ * Process all pending tasks
+ */
+async function processTasks(): Promise<void> {
+  if (isProcessing) return
+  isProcessing = true
+
+  while (true) {
+    // Find next pending task
+    const pendingTask = Array.from(tasks.values()).find(t => t.status === 'pending')
+    if (!pendingTask) break
+
+    // Mark as running
+    pendingTask.status = 'running'
+    tasks.set(pendingTask.id, pendingTask)
+    emitTaskProgress(pendingTask.id, pendingTask.progress, 'running')
+
+    try {
+      await executeTask(pendingTask)
+    } catch (error: any) {
+      log.error(`[task-queue] Task execution error:`, error)
+      completeTask(pendingTask.id, { error: error.message })
+    }
+  }
+
+  isProcessing = false
+}
+
+/**
+ * Execute a single task
+ */
+async function executeTask(task: Task): Promise<void> {
+  const { data } = task
+  log.info(`[task-queue] Executing task ${task.id}:`, data)
+
+  // Update progress to 10%
+  updateTaskProgress(task.id, 0.1)
+
+  if (data.type === 'cli') {
+    // CLI command via claude --print
+    const result = await runCliCommand(data.cmd!)
+    updateTaskProgress(task.id, 0.9)
+    completeTask(task.id, result)
+
+  } else if (data.type === 'script') {
+    // Script execution
+    const result = await runSkillScript(data.script!, data.args || [])
+    updateTaskProgress(task.id, 0.9)
+    completeTask(task.id, result)
+
+  } else if (data.type === 'scan') {
+    // Scan task - call the skill script
+    // Map platform/list to actual script
+    const platform = data.platform || 'qidian'
+    const list = data.list || '月票榜'
+
+    updateTaskProgress(task.id, 0.2)
+
+    // For demo, we'll call a CLI command that triggers the scan
+    // In production, this would call the actual scan script
+    const result = await runCliCommand(`/story-long-scan ${platform} ${list}`)
+
+    updateTaskProgress(task.id, 0.9)
+    completeTask(task.id, {
+      success: result.success,
+      output: result.output || '扫描完成',
+      error: result.error
+    })
   }
 }
 
