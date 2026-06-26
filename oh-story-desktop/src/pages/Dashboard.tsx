@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
+import { useTask } from '../hooks/useTask'
 import { Search, BookOpen, PenTool, Sparkles, Image, TrendingUp, Clock, FileText, Zap } from 'lucide-react'
 
 function Dashboard() {
   const navigate = useNavigate()
+  const { tasks } = useTask()
 
   const quickActions = [
     { icon: Search, label: '扫榜', path: '/scan', color: 'bg-blue-500' },
@@ -19,11 +21,26 @@ function Dashboard() {
     { label: '去味待审', value: '5 章', sub: '点击处理', icon: Sparkles },
   ]
 
-  const recentTasks = [
-    { status: 'running', name: '扫榜 · 番茄月票榜', progress: 65, time: '14:30' },
-    { status: 'completed', name: '去味 · 第23章', result: '1,243字已处理', time: '14:20' },
-    { status: 'completed', name: '拆文 · 《深海余烬》', result: '黄金三章报告', time: '06-25' },
-  ]
+  // Get recent tasks (last 5)
+  const recentTasks = tasks.slice(0, 5)
+
+  const getTaskName = (task: any) => {
+    switch (task.type) {
+      case 'cli':
+        return `CLI: ${task.cmd}`
+      case 'script':
+        return `脚本: ${task.script}`
+      case 'scan':
+        return `扫榜: ${task.platform || ''} ${task.list || ''}`
+      default:
+        return `任务: ${task.type}`
+    }
+  }
+
+  const formatTime = (iso: string) => {
+    const d = new Date(iso)
+    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  }
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -68,31 +85,41 @@ function Dashboard() {
       <div>
         <h2 className="text-lg font-semibold text-gray-700 mb-4">最近任务</h2>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
-          {recentTasks.map((task, i) => (
-            <div key={i} className="p-4 flex items-center gap-4">
-              <div className={`w-2 h-2 rounded-full ${
-                task.status === 'running' ? 'bg-blue-500 animate-pulse' :
-                task.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'
-              }`} />
-              <div className="flex-1">
-                <div className="font-medium text-gray-700">{task.name}</div>
-                <div className="text-xs text-gray-400">
-                  {task.status === 'running' ? (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1 bg-gray-200 rounded-full max-w-xs">
-                        <div
-                          className="h-full bg-blue-500 rounded-full"
-                          style={{ width: `${task.progress}%` }}
-                        />
-                      </div>
-                      <span>{task.progress}%</span>
-                    </div>
-                  ) : task.result}
-                </div>
-              </div>
-              <div className="text-xs text-gray-400">{task.time}</div>
+          {recentTasks.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">
+              暂无任务记录
             </div>
-          ))}
+          ) : (
+            recentTasks.map((task) => (
+              <div key={task.id} className="p-4 flex items-center gap-4">
+                <div className={`w-2 h-2 rounded-full ${
+                  task.status === 'running' ? 'bg-blue-500 animate-pulse' :
+                  task.status === 'completed' ? 'bg-green-500' :
+                  task.status === 'cancelled' ? 'bg-gray-400' :
+                  'bg-gray-300'
+                }`} />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-700">{getTaskName(task)}</div>
+                  <div className="text-xs text-gray-400">
+                    {task.status === 'running' || task.status === 'pending' ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1 bg-gray-200 rounded-full w-32">
+                          <div
+                            className="h-full bg-blue-500 rounded-full transition-all"
+                            style={{ width: `${task.progress * 100}%` }}
+                          />
+                        </div>
+                        <span>{Math.round(task.progress * 100)}%</span>
+                      </div>
+                    ) : task.status === 'completed' && task.result?.output ? (
+                      task.result.output.substring(0, 50)
+                    ) : task.status}
+                  </div>
+                </div>
+                <div className="text-xs text-gray-400">{formatTime(task.createdAt)}</div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

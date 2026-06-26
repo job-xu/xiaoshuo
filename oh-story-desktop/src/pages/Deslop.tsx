@@ -1,28 +1,35 @@
 import { useState } from 'react'
-import { Play, Copy, Check, Trash2, Wand2 } from 'lucide-react'
+import { useScript } from '../hooks/useScript'
+import { useTask } from '../hooks/useTask'
+import { Play, Copy, Check, Trash2, Wand2, ArrowRight } from 'lucide-react'
 
 function Deslop() {
   const [input, setInput] = useState('')
   const [output, setOutput] = useState('')
-  const [processing, setProcessing] = useState(false)
   const [mode, setMode] = useState<'standard' | 'light' | 'deep'>('standard')
   const [copied, setCopied] = useState(false)
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const { run, running } = useScript()
+  const { tasks } = useTask()
+
+  const currentTask = tasks.find(t => t.id === currentTaskId)
+  const isProcessing = currentTask?.status === 'running' || currentTask?.status === 'pending'
 
   const handleProcess = async () => {
     if (!input.trim()) return
-    setProcessing(true)
 
-    const result = await window.electronAPI?.queueTask({
-      type: 'script',
-      script: 'story-deslop/scripts/normalize-punctuation.js',
-      args: [input, mode]
-    })
+    setCurrentTaskId(null)
+    setOutput('')
 
-    // Simulate processing
-    setTimeout(() => {
-      setOutput(input) // Placeholder - real implementation would call the script
-      setProcessing(false)
-    }, 1500)
+    // Run the deslop script
+    const result = await run('story-deslop/scripts/normalize-punctuation.js', [input, mode])
+
+    if (result.success) {
+      setOutput(result.output)
+    } else {
+      // Show error or use input as placeholder
+      setOutput(result.error || '处理失败')
+    }
   }
 
   const handleCopy = () => {
@@ -31,10 +38,27 @@ function Deslop() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleClear = () => {
+    setInput('')
+    setOutput('')
+    setCurrentTaskId(null)
+  }
+
   return (
     <div className="h-full overflow-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">去AI味</h1>
+        {currentTask && (
+          <div className="flex items-center gap-2 text-sm text-blue-600">
+            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 transition-all"
+                style={{ width: `${currentTask.progress * 100}%` }}
+              />
+            </div>
+            <span>{Math.round(currentTask.progress * 100)}%</span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -45,8 +69,9 @@ function Deslop() {
             <div className="flex items-center gap-2 text-sm text-gray-400">
               <span>{input.length} 字</span>
               <button
-                onClick={() => setInput('')}
-                className="px-2 py-1 hover:text-gray-600"
+                onClick={handleClear}
+                className="p-1 hover:text-gray-600"
+                title="清空"
               >
                 <Trash2 size={14} />
               </button>
@@ -77,9 +102,9 @@ function Deslop() {
             )}
           </div>
           <div className="flex-1 p-4">
-            {processing ? (
+            {isProcessing ? (
               <div className="h-full flex items-center justify-center text-gray-400">
-                <Wand2 size={24} className="animate-spin mr-2" />
+                <Wand2 size={24} className="animate-pulse mr-2 text-blue-500" />
                 AI 检测中...
               </div>
             ) : output ? (
@@ -88,7 +113,10 @@ function Deslop() {
               </div>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-300">
-                处理结果将显示在这里
+                <div className="text-center">
+                  <ArrowRight size={24} className="mx-auto mb-2 opacity-30" />
+                  <p>处理结果将显示在这里</p>
+                </div>
               </div>
             )}
           </div>
@@ -116,7 +144,7 @@ function Deslop() {
 
         <button
           onClick={handleProcess}
-          disabled={!input.trim() || processing}
+          disabled={!input.trim() || isProcessing}
           className="px-6 py-3 bg-blue-600 text-white rounded-xl flex items-center gap-2 disabled:opacity-50 hover:bg-blue-700"
         >
           <Play size={18} /> 开始处理
