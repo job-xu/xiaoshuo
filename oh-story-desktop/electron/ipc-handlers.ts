@@ -1,104 +1,65 @@
-import { ipcMain, dialog, app } from 'electron'
-import { spawn, SpawnOptions } from 'child_process'
-import { join, dirname } from 'path'
+import { ipcMain, dialog } from 'electron'
 import log from 'electron-log'
-
-// Get the skills directory - either from the app itself or from project directory
-function getSkillsDir(): string {
-  // In development, skills are in the parent directory
-  // In production, they would be bundled with the app
-  const appDir = dirname(app.getAppPath())
-  const devSkillsDir = join(appDir, '..', 'skills')
-  return devSkillsDir
-}
+import { runCliCommand } from './runners/cli-runner'
+import { runSkillScript } from './runners/script-runner'
+import {
+  queueTask as addTask,
+  getAllTasks,
+  getTask,
+  cancelTask,
+  updateTaskProgress,
+  completeTask,
+  TaskType
+} from './services/task-queue'
 
 export function setupIpcHandlers(): void {
   log.info('Setting up IPC handlers...')
 
   // CLI command runner
   ipcMain.handle('cli:run', async (_, cmd: string) => {
-    log.info(`CLI command: ${cmd}`)
-    return new Promise((resolve) => {
-      try {
-        const result = spawnSync('claude', ['--print', cmd], {
-          cwd: app.getPath('home'),
-          encoding: 'utf-8',
-          timeout: 120000,
-          shell: true
-        } as SpawnOptions)
-
-        resolve({
-          success: result.status === 0,
-          output: result.stdout || '',
-          error: result.stderr || ''
-        })
-      } catch (error: any) {
-        log.error('CLI error:', error)
-        resolve({
-          success: false,
-          output: '',
-          error: error.message || 'Unknown error'
-        })
-      }
-    })
+    log.info(`[IPC] cli:run - ${cmd}`)
+    return runCliCommand(cmd)
   })
 
   // Script runner
   ipcMain.handle('script:run', async (_, script: string, args: string[]) => {
-    log.info(`Running script: ${script} with args:`, args)
-    return new Promise((resolve) => {
-      try {
-        const scriptPath = join(getSkillsDir(), script)
-        const result = spawnSync('node', [scriptPath, ...args], {
-          encoding: 'utf-8',
-          timeout: 120000
-        } as SpawnOptions)
-
-        resolve({
-          success: result.status === 0,
-          output: result.stdout || '',
-          error: result.stderr || ''
-        })
-      } catch (error: any) {
-        log.error('Script error:', error)
-        resolve({
-          success: false,
-          output: '',
-          error: error.message || 'Unknown error'
-        })
-      }
-    })
+    log.info(`[IPC] script:run - ${script}`)
+    return runSkillScript(script, args)
   })
 
-  // Task queue handlers (simplified in-memory implementation)
-  const tasks = new Map<string, any>()
-
-  ipcMain.handle('task:queue', async (_, task: any) => {
-    const id = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    const taskData = {
-      id,
-      ...task,
-      status: 'pending',
-      progress: 0,
-      createdAt: new Date().toISOString()
-    }
-    tasks.set(id, taskData)
-    log.info(`Task queued: ${id}`)
+  // Task queue - queue a new task
+  ipcMain.handle('task:queue', async (_, taskData: TaskType) => {
+    log.info('[IPC] task:queue', taskData)
+    const id = addTask(taskData)
     return { id }
   })
 
+  // Task queue - list all tasks
   ipcMain.handle('task:list', async () => {
-    return Array.from(tasks.values())
+    return getAllTasks()
   })
 
+  // Task queue - get single task
+  ipcMain.handle('task:get', async (_, id: string) => {
+    return getTask(id)
+  })
+
+  // Task queue - cancel a task
   ipcMain.handle('task:cancel', async (_, id: string) => {
-    const task = tasks.get(id)
-    if (task) {
-      task.status = 'cancelled'
-      tasks.set(id, task)
-      return true
-    }
-    return false
+    log.info(`[IPC] task:cancel - ${id}`)
+    return cancelTask(id)
+  })
+
+  // Task queue - update progress (internal use)
+  ipcMain.handle('task:updateProgress', async (_, id: string, progress: number, status?: string) => {
+    updateTaskProgress(id, progress, status)
+    return true
+  })
+
+  // Task queue - complete task (internal use)
+  ipcMain.handle('task:complete', async (_, id: string, result: any) => {
+    completeTask(id, result)
+    return true
   })
 
   // Directory selection dialog
@@ -113,19 +74,4 @@ export function setupIpcHandlers(): void {
   })
 
   log.info('IPC handlers setup complete')
-}
-
-// Helper to emit task events (call this from task processing)
-export function emitTaskProgress(id: string, progress: number, status: string): void {
-  const { BrowserWindow } = require('electron')
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('task:progress', { id, progress, status })
-  })
-}
-
-export function emitTaskComplete(id: string, result: any): void {
-  const { BrowserWindow } = require('electron')
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('task:complete', { id, result })
-  })
 }
