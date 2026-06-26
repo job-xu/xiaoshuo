@@ -11,7 +11,6 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "bullmq": "^5.79.1",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.400.0",
@@ -21,6 +20,7 @@
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.5.2",
     "electron": "^32.3.3",
